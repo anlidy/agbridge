@@ -1,0 +1,28 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+      - run: VERSION="${GITHUB_REF_NAME#v}" ./build.sh
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          sha256sum agbridge.exe > SHA256SUMS.txt
+          notes="../.github/release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$notes" ]; then args=(--notes-file "$notes"); else args=(--generate-notes); fi
+          gh release create "$GITHUB_REF_NAME" agbridge.exe SHA256SUMS.txt --title "AGBridge $GITHUB_REF_NAME" "${args[@]}"
