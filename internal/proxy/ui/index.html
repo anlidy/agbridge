@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGBridge 控制台</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%232563eb'/%3E%3Cpath d='M5 21h22M7 21a9 9 0 0 1 18 0' stroke='white' stroke-width='3' fill='none'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1d2330;--muted:#6b7280;--line:#e5e7eb;--accent:#2563eb;--accent-fg:#fff;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--chip:#eef2ff;--input:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--fg:#e5e7eb;--muted:#9ca3af;--line:#2a2f3a;--accent:#3b82f6;--chip:#1e2433;--input:#11141a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:2}
+header h1{font-size:18px;margin:0}header .ver{color:var(--muted);font-size:12px}
+main{max-width:1100px;margin:0 auto;padding:20px 16px 60px;display:grid;gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.card h2{font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+.card h2 .sp{flex:1}
+.pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;background:var(--chip)}
+.pill.ok{background:#16a34a22;color:var(--ok)}.pill.warn{background:#d9770622;color:var(--warn)}.pill.bad{background:#dc262622;color:var(--bad)}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:6px 12px;border-radius:7px;cursor:pointer}
+button:hover{border-color:var(--accent)}button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button.danger{color:var(--bad)}button.small{padding:3px 8px;font-size:12px}button:disabled{opacity:.5;cursor:default}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{color:var(--muted);font-weight:500;font-size:12px}td.actions{white-space:nowrap;text-align:right}
+.muted{color:var(--muted)}.mono{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px}
+.grid2{display:grid;grid-template-columns:140px 1fr;gap:6px 12px;align-items:center}
+.empty{color:var(--muted);padding:12px 0}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);padding:0;width:min(560px,94vw)}
+dialog::backdrop{background:#0006}
+dialog form{padding:18px 20px;display:grid;gap:10px}dialog h3{margin:0 0 4px;font-size:16px}
+label{display:grid;gap:4px;font-size:13px}label .hint{color:var(--muted);font-size:12px}
+input,select,textarea{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--input);color:var(--fg);width:100%}
+textarea{min-height:60px;font-family:Consolas,monospace;font-size:12px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.row>label{flex:1;min-width:140px}
+.check{display:flex;align-items:center;gap:6px}.check input{width:auto}
+.btns{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+.msg{padding:8px 10px;border-radius:7px;background:var(--chip);font-size:13px}
+.msg.bad{background:#dc262618;color:var(--bad)}.msg.ok{background:#16a34a18;color:var(--ok)}.msg.warn{background:#d9770618;color:var(--warn)}
+#toast{position:fixed;right:20px;bottom:20px;max-width:420px;z-index:9;display:none}
+.list{max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:7px;padding:6px}
+.list label{display:flex;flex-direction:row;align-items:center;gap:6px;padding:2px 4px}
+.list input{width:auto}
+pre.log{max-height:360px;overflow:auto;background:var(--input);border:1px solid var(--line);border-radius:7px;padding:8px;font-size:12px;white-space:pre-wrap;word-break:break-all}
+details summary{cursor:pointer;color:var(--muted)}
+</style>
+</head>
+<body>
+<header><h1>AGBridge</h1><span class="ver">v__AGB_VERSION__ · Antigravity 第三方模型代理</span><span style="flex:1"></span><span id="hdrStatus" class="pill">加载中</span></header>
+<main>
+  <section class="card">
+    <h2>Antigravity 接入<span class="sp"></span><button id="btnInstall" class="primary">接入 / 修复</button><button id="btnUninstall" class="danger">卸载接入</button></h2>
+    <div class="grid2" id="installInfo"></div>
+    <div id="installMsg" class="msg" style="display:none;margin-top:10px"></div>
+  </section>
+
+  <section class="card">
+    <h2>提供方<span class="sp"></span><button id="btnAddProvider" class="primary">添加提供方</button></h2>
+    <table><thead><tr><th>名称</th><th>协议</th><th>地址</th><th>密钥</th><th></th></tr></thead><tbody id="providers"></tbody></table>
+  </section>
+
+  <section class="card">
+    <h2>模型<span class="sp"></span><button id="btnAddModel" class="primary">添加模型</button></h2>
+    <table><thead><tr><th>显示名</th><th>提供方</th><th>上游模型</th><th>原生编号</th><th>启用</th><th></th></tr></thead><tbody id="models"></tbody></table>
+    <p class="muted" style="margin:10px 0 0">保存后要完全退出 Antigravity 再打开，模型下拉框才会更新。</p>
+  </section>
+
+  <section class="card">
+    <h2>最近请求<span class="sp"></span><button id="btnRefresh" class="small">刷新</button></h2>
+    <table><thead><tr><th>时间</th><th>类型</th><th>模型</th><th>状态</th><th>耗时</th><th>tokens 入/出</th></tr></thead><tbody id="records"></tbody></table>
+  </section>
+
+  <section class="card">
+    <h2>设置</h2>
+    <form id="settingsForm" class="grid2" onsubmit="return false">
+      <span>监听端口</span><input name="port" type="number" min="1024" max="65535">
+      <span>上游代理</span><input name="proxy" placeholder="auto / direct / http://127.0.0.1:7890 / socks5://…">
+      <span>Antigravity 目录</span><input name="antigravity" placeholder="留空自动识别，例如 C:\Users\你\AppData\Local\Programs\antigravity">
+      <span>补丁版语言服务器</span><label class="check"><input type="checkbox" name="patchBinary"> 启用（模型列表需要它，建议保持开启）</label>
+      <span></span><div class="row"><button id="btnSaveSettings" class="primary">保存设置</button><span class="muted">改端口或补丁开关后需要重新“接入 / 修复”</span></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <details><summary>Antigravity 原生模型（最近一次模型列表）</summary>
+      <table style="margin-top:8px"><thead><tr><th>ID</th><th>名称</th><th>内部编号</th></tr></thead><tbody id="natives"></tbody></table>
+    </details>
+  </section>
+
+  <section class="card">
+    <details id="logDetails"><summary>运行日志</summary><pre class="log" id="logText"></pre></details>
+    <p class="muted mono" id="paths" style="margin:8px 0 0"></p>
+  </section>
+</main>
+
+<dialog id="providerDlg"><form method="dialog" id="providerForm">
+  <h3 id="providerTitle">提供方</h3>
+  <input type="hidden" name="id">
+  <div class="row">
+    <label>名称<input name="name" required placeholder="例如 我的 Gemini 中转"></label>
+    <label>协议<select name="type">
+      <option value="gemini">Gemini 原生 API</option>
+      <option value="openai">OpenAI 兼容</option>
+      <option value="anthropic">Anthropic Messages</option>
+    </select></label>
+  </div>
+  <label>Base URL<input name="baseUrl" required list="presets" placeholder="https://generativelanguage.googleapis.com"><span class="hint" id="baseHint"></span></label>
+  <datalist id="presets"></datalist>
+  <label>API Key<input name="apiKey" type="password" autocomplete="off" placeholder="留空表示不修改"></label>
+  <div class="row">
+    <label id="authModeWrap">Gemini 认证方式<select name="authMode">
+      <option value="">x-goog-api-key 头（官方）</option>
+      <option value="bearer">Authorization: Bearer</option>
+      <option value="query">URL 参数 ?key=</option>
+    </select></label>
+    <label>代理<input name="proxy" placeholder="留空=跟随全局，direct=直连"></label>
+    <label>超时(秒)<input name="timeoutSeconds" type="number" min="0" placeholder="600"></label>
+  </div>
+  <label>额外请求头<textarea name="headers" placeholder="每行一个，例如&#10;X-Custom: value"></textarea></label>
+  <div class="btns"><button value="cancel" formnovalidate>取消</button><button id="providerSave" class="primary" value="save">保存</button></div>
+</form></dialog>
+
+<dialog id="modelDlg"><form method="dialog" id="modelForm">
+  <h3 id="modelTitle">模型</h3>
+  <input type="hidden" name="id">
+  <div class="row">
+    <label>提供方<select name="providerId" required></select></label>
+    <label>上游模型名<input name="upstreamModel" list="upstreamList" placeholder="gemini-2.5-pro"></label>
+  </div>
+  <datalist id="upstreamList"></datalist>
+  <div class="row"><button type="button" id="btnFetchModels" class="small">从提供方获取模型列表</button><span class="muted" id="fetchHint"></span></div>
+  <div id="fetchList" class="list" style="display:none"></div>
+  <label>在 Antigravity 里显示的名字<input name="displayName" placeholder="默认用上游模型名"></label>
+  <div class="row">
+    <label>上下文上限<input name="maxTokens" type="number" min="0" placeholder="自动"></label>
+    <label>输出上限<input name="maxOutputTokens" type="number" min="0" placeholder="自动"></label>
+  </div>
+  <div class="row">
+    <label class="check"><input type="checkbox" name="enabled" checked> 启用</label>
+    <label class="check"><input type="checkbox" name="supportsImages" checked> 支持图片</label>
+    <label class="check"><input type="checkbox" name="supportsThinking" checked> 显示思考</label>
+  </div>
+  <div class="row">
+    <label id="effortWrap">推理强度<select name="reasoningEffort"><option value="">不指定</option><option>minimal</option><option>low</option><option>medium</option><option>high</option></select></label>
+    <label id="sigWrap">思维签名<select name="thoughtSignature">
+      <option value="">自动（被拒时换占位签名重试）</option><option value="keep">原样保留</option>
+      <option value="dummy">总用占位签名</option><option value="strip">全部去掉</option></select></label>
+  </div>
+  <div class="btns"><button value="cancel" formnovalidate>取消</button><button class="primary" value="save">保存</button></div>
+</form></dialog>
+
+<div id="toast" class="msg"></div>
+
+<script>
+const TOKEN = "__AGB_TOKEN__";
+const PRESETS = {
+  gemini: [["https://generativelanguage.googleapis.com","Google AI Studio 官方"]],
+  openai: [["https://api.openai.com/v1","OpenAI"],["https://api.deepseek.com/v1","DeepSeek"],["https://openrouter.ai/api/v1","OpenRouter"],["https://api.siliconflow.cn/v1","硅基流动"],["https://dashscope.aliyuncs.com/compatible-mode/v1","阿里云百炼"],["http://127.0.0.1:11434/v1","本地 Ollama"]],
+  anthropic: [["https://api.anthropic.com","Anthropic 官方"]],
+};
+const HINTS = {
+  gemini: "填到域名即可（会自动补 /v1beta），兼容 Google 官方和支持 Gemini 原生格式的中转站",
+  openai: "填到 /v1 为止，程序会请求 …/chat/completions",
+  anthropic: "填到域名或 /v1，程序会请求 …/v1/messages",
+};
+let state = null;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function api(method, path, body) {
+  const r = await fetch("/api" + path, {method, headers: {"X-AGB-Token": TOKEN, "Content-Type": "application/json"}, body: body === undefined ? undefined : JSON.stringify(body)});
+  let data = {};
+  try { data = await r.json(); } catch {}
+  if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+  return data;
+}
+function toast(text, kind) {
+  const t = $("#toast"); t.textContent = text; t.className = "msg " + (kind || ""); t.style.display = "block";
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", kind === "bad" ? 8000 : 3500);
+}
+
+async function load() {
+  try { state = await api("GET", "/state"); } catch (e) { $("#hdrStatus").textContent = "连接失败"; $("#hdrStatus").className = "pill bad"; return; }
+  renderInstall(); renderProviders(); renderModels(); renderRecords(); renderSettings(); renderNatives();
+  $("#paths").textContent = "配置: " + state.configPath + "    日志: " + state.logPath;
+}
+
+function renderInstall() {
+  const s = state.install || {};
+  const rows = [
+    ["安装目录", s.dir ? esc(s.dir) : '<span class="muted">未找到</span>'],
+    ["版本", esc(s.version || "-")],
+    ["接入状态", s.hooked ? (s.shimCurrent === false ? '<span class="pill warn">已接入（shim 需要更新）</span>' : '<span class="pill ok">已接入</span>') : '<span class="pill">未接入</span>'],
+    ["补丁版语言服务器", s.patchedPresent ? "已生成" : "无"],
+    ["Antigravity 运行中", s.running ? "是" : "否"],
+    ["Google 上游", esc(state.upstreams.cloudCode || "（等待语言服务器注册）")],
+  ];
+  $("#installInfo").innerHTML = rows.map(([k, v]) => `<span class="muted">${k}</span><span>${v}</span>`).join("");
+  const m = $("#installMsg");
+  const notice = s.message ? [s.message, "bad"]
+    : s.restartNeeded ? ["已接入，但正在运行的 Antigravity 还在用接入前的语言服务器。完全退出 Antigravity（包括托盘）再打开后生效。", "warn"]
+    : state.catalogStale && s.running ? ["模型有改动，Antigravity 还没重新拉取模型列表。完全退出 Antigravity 再打开后，下拉框才会更新。", "warn"]
+    : null;
+  if (notice) { m.textContent = notice[0]; m.className = "msg " + notice[1]; m.style.display = "block"; } else m.style.display = "none";
+  const hs = $("#hdrStatus");
+  if (s.hooked && s.shimCurrent !== false) { hs.textContent = "已接入 Antigravity"; hs.className = "pill ok"; }
+  else if (s.found) { hs.textContent = "未接入"; hs.className = "pill warn"; }
+  else { hs.textContent = "未找到 Antigravity"; hs.className = "pill bad"; }
+}
+
+function renderProviders() {
+  const tb = $("#providers");
+  if (!state.providers.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">还没有提供方，先添加一个吧</td></tr>'; return; }
+  tb.innerHTML = state.providers.map(p => `<tr>
+    <td>${esc(p.name)}</td><td><span class="pill">${esc(p.type)}</span></td><td class="mono">${esc(p.baseUrl)}</td>
+    <td class="mono">${p.hasKey ? esc(p.keyHint || "已设置") : '<span class="muted">无</span>'}</td>
+    <td class="actions"><button class="small" data-edit-provider="${p.id}">编辑</button> <button class="small danger" data-del-provider="${p.id}">删除</button></td></tr>`).join("");
+}
+
+function providerName(id) { const p = state.providers.find(p => p.id === id); return p ? p.name : "?"; }
+
+function renderModels() {
+  const tb = $("#models");
+  if (!state.models.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">还没有模型</td></tr>'; return; }
+  tb.innerHTML = state.models.map(m => `<tr>
+    <td>${esc(m.displayName)}</td><td>${esc(providerName(m.providerId))}</td><td class="mono">${esc(m.upstreamModel)}</td>
+    <td class="mono muted">${m.placeholder == null ? "-" : "M" + m.placeholder}</td>
+    <td><input type="checkbox" data-toggle-model="${m.id}" ${m.enabled ? "checked" : ""}></td>
+    <td class="actions"><button class="small" data-test-model="${m.id}">测试</button> <button class="small" data-edit-model="${m.id}">编辑</button> <button class="small danger" data-del-model="${m.id}">删除</button></td></tr>`).join("");
+}
+
+function renderRecords() {
+  const tb = $("#records");
+  if (!state.records.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">暂无请求</td></tr>'; return; }
+  tb.innerHTML = state.records.slice(0, 50).map(r => {
+    const ok = r.status >= 200 && r.status < 300;
+    return `<tr><td class="mono">${new Date(r.time).toLocaleTimeString()}</td><td>${r.kind === "catalog" ? "模型列表" : "生成"}</td>
+      <td>${esc(r.model)}${r.provider ? ' <span class="muted">→ ' + esc(r.provider) + "</span>" : ""}</td>
+      <td>${ok ? '<span class="pill ok">' + r.status + "</span>" : '<span class="pill bad" title="' + esc(r.error) + '">' + r.status + "</span>"}${r.error ? '<div class="muted" style="font-size:12px">' + esc(r.error).slice(0, 200) + "</div>" : ""}</td>
+      <td class="mono">${r.durationMs}ms</td><td class="mono">${r.inTokens || "-"} / ${r.outTokens || "-"}</td></tr>`;
+  }).join("");
+}
+
+function renderSettings() {
+  const f = $("#settingsForm");
+  if (document.activeElement && f.contains(document.activeElement)) return;
+  f.port.value = state.port; f.proxy.value = state.proxy; f.antigravity.value = state.antigravity || ""; f.patchBinary.checked = state.patchBinary;
+}
+
+function renderNatives() {
+  const n = state.nativeModels || [];
+  $("#natives").innerHTML = n.length ? n.map(m => `<tr><td class="mono">${esc(m.id)}</td><td>${esc(m.displayName)}</td><td class="mono muted">${esc(m.model)}</td></tr>`).join("")
+    : '<tr><td colspan="3" class="empty">还没有收到模型列表（接入后打开 Antigravity 即可）</td></tr>';
+}
+
+// ---- providers ----
+function syncProviderType() {
+  const f = $("#providerForm"), t = f.type.value;
+  $("#presets").innerHTML = PRESETS[t].map(([u, n]) => `<option value="${u}">${n}</option>`).join("");
+  $("#baseHint").textContent = HINTS[t];
+  $("#authModeWrap").style.display = t === "gemini" ? "" : "none";
+}
+function openProvider(p) {
+  const f = $("#providerForm"); f.reset();
+  $("#providerTitle").textContent = p ? "编辑提供方" : "添加提供方";
+  f.id.value = p?.id || ""; f.name.value = p?.name || ""; f.type.value = p?.type || "gemini";
+  f.baseUrl.value = p?.baseUrl || (p ? "" : PRESETS.gemini[0][0]); f.apiKey.value = "";
+  f.apiKey.placeholder = p?.hasKey ? "已设置，留空表示不修改" : "sk-… / AIza…";
+  f.authMode.value = p?.authMode || ""; f.proxy.value = p?.proxy || ""; f.timeoutSeconds.value = p?.timeoutSeconds || "";
+  f.headers.value = Object.entries(p?.headers || {}).map(([k, v]) => k + ": " + v).join("\n");
+  syncProviderType(); $("#providerDlg").showModal();
+}
+$("#providerForm").type.addEventListener("change", () => { const f = $("#providerForm"); syncProviderType(); if (!f.id.value) f.baseUrl.value = PRESETS[f.type.value][0][0]; });
+$("#providerDlg").addEventListener("close", async () => {
+  if ($("#providerDlg").returnValue !== "save") return;
+  const f = $("#providerForm");
+  const headers = {};
+  f.headers.value.split("\n").forEach(line => { const i = line.indexOf(":"); if (i > 0) headers[line.slice(0, i).trim()] = line.slice(i + 1).trim(); });
+  const body = {id: f.id.value, name: f.name.value, type: f.type.value, baseUrl: f.baseUrl.value, authMode: f.type.value === "gemini" ? f.authMode.value : "",
+    proxy: f.proxy.value.trim(), timeoutSeconds: Number(f.timeoutSeconds.value) || 0, headers};
+  if (f.apiKey.value) body.apiKey = f.apiKey.value;
+  try { await api("POST", "/providers", body); toast("提供方已保存", "ok"); await load(); }
+  catch (e) { toast("保存失败：" + e.message, "bad"); $("#providerDlg").showModal(); }
+});
+
+// ---- models ----
+function syncModelProvider() {
+  const f = $("#modelForm"), p = state.providers.find(p => p.id === f.providerId.value);
+  $("#sigWrap").style.display = p?.type === "gemini" ? "" : "none";
+  $("#effortWrap").style.display = p ? "" : "none";
+}
+function openModel(m) {
+  if (!state.providers.length) { toast("请先添加提供方", "bad"); return; }
+  const f = $("#modelForm"); f.reset();
+  $("#modelTitle").textContent = m ? "编辑模型" : "添加模型";
+  f.providerId.innerHTML = state.providers.map(p => `<option value="${p.id}">${esc(p.name)}（${p.type}）</option>`).join("");
+  f.id.value = m?.id || ""; f.providerId.value = m?.providerId || state.providers[0].id;
+  f.upstreamModel.value = m?.upstreamModel || ""; f.displayName.value = m?.displayName || "";
+  f.maxTokens.value = m?.maxTokens || ""; f.maxOutputTokens.value = m?.maxOutputTokens || "";
+  f.enabled.checked = m ? m.enabled : true; f.supportsImages.checked = m?.supportsImages ?? true; f.supportsThinking.checked = m?.supportsThinking ?? true;
+  f.reasoningEffort.value = m?.reasoningEffort || ""; f.thoughtSignature.value = m?.thoughtSignature || "";
+  $("#fetchList").style.display = "none"; $("#fetchHint").textContent = m ? "" : "可以一次勾选多个";
+  syncModelProvider(); $("#modelDlg").showModal();
+}
+$("#modelForm").providerId.addEventListener("change", syncModelProvider);
+$("#btnFetchModels").addEventListener("click", async () => {
+  const f = $("#modelForm"); $("#fetchHint").textContent = "获取中…";
+  try {
+    const r = await api("POST", "/providers/" + f.providerId.value + "/models");
+    const list = (r.models || []).sort();
+    $("#upstreamList").innerHTML = list.map(n => `<option value="${esc(n)}">`).join("");
+    $("#fetchHint").textContent = `共 ${list.length} 个，连接正常`;
+    if (!f.id.value && list.length) {
+      const box = $("#fetchList"); box.style.display = "block";
+      box.innerHTML = list.map(n => `<label><input type="checkbox" value="${esc(n)}"> <span class="mono">${esc(n)}</span></label>`).join("");
+    }
+  } catch (e) { $("#fetchHint").textContent = "失败：" + e.message; }
+});
+$("#modelDlg").addEventListener("close", async () => {
+  if ($("#modelDlg").returnValue !== "save") return;
+  const f = $("#modelForm");
+  const base = {providerId: f.providerId.value, enabled: f.enabled.checked, supportsImages: f.supportsImages.checked, supportsThinking: f.supportsThinking.checked,
+    maxTokens: Number(f.maxTokens.value) || 0, maxOutputTokens: Number(f.maxOutputTokens.value) || 0,
+    reasoningEffort: f.reasoningEffort.value, thoughtSignature: f.thoughtSignature.value};
+  const picked = [...document.querySelectorAll("#fetchList input:checked")].map(i => i.value);
+  if (!picked.length && !f.upstreamModel.value.trim()) { toast("请填写上游模型名，或从列表里勾选", "bad"); $("#modelDlg").showModal(); return; }
+  try {
+    if (!f.id.value && picked.length) {
+      for (const name of picked) await api("POST", "/models", {...base, upstreamModel: name, displayName: picked.length === 1 && f.displayName.value ? f.displayName.value : name});
+      toast(`已添加 ${picked.length} 个模型`, "ok");
+    } else {
+      await api("POST", "/models", {...base, id: f.id.value, upstreamModel: f.upstreamModel.value, displayName: f.displayName.value});
+      toast("模型已保存", "ok");
+    }
+    await load();
+  } catch (e) { toast("保存失败：" + e.message, "bad"); $("#modelDlg").showModal(); }
+});
+
+document.addEventListener("click", async e => {
+  const t = e.target, d = t.dataset;
+  try {
+    if (d.editProvider) openProvider(state.providers.find(p => p.id === d.editProvider));
+    else if (d.delProvider) { if (confirm("删除这个提供方以及它下面的所有模型？")) { await api("DELETE", "/providers/" + d.delProvider); await load(); } }
+    else if (d.editModel) openModel(state.models.find(m => m.id === d.editModel));
+    else if (d.delModel) { if (confirm("删除这个模型？")) { await api("DELETE", "/models/" + d.delModel); await load(); } }
+    else if (d.toggleModel) { const m = state.models.find(m => m.id === d.toggleModel); await api("POST", "/models", {...m, enabled: t.checked}); await load(); }
+    else if (d.testModel) {
+      t.disabled = true; t.textContent = "测试中…";
+      try { const r = await api("POST", "/models/" + d.testModel + "/test"); toast(`成功（${r.ms}ms）：${r.text.slice(0, 120)}`, "ok"); }
+      finally { t.disabled = false; t.textContent = "测试"; }
+    }
+  } catch (err) { toast(err.message, "bad"); }
+});
+
+$("#btnAddProvider").onclick = () => openProvider(null);
+$("#btnAddModel").onclick = () => openModel(null);
+$("#btnRefresh").onclick = load;
+$("#btnInstall").onclick = async () => {
+  if (!confirm("将替换 Antigravity 的 language_server.exe（原版会备份，可随时卸载还原）。继续？")) return;
+  try { await api("POST", "/install"); toast("接入完成", "ok"); } catch (e) { toast("接入失败：" + e.message, "bad"); }
+  load();
+};
+$("#btnUninstall").onclick = async () => {
+  if (!confirm("还原原版 language_server.exe 并删除补丁文件？")) return;
+  try { await api("POST", "/uninstall"); toast("已还原原版", "ok"); } catch (e) { toast("卸载失败：" + e.message, "bad"); }
+  load();
+};
+$("#btnSaveSettings").onclick = async () => {
+  const f = $("#settingsForm");
+  try { await api("POST", "/settings", {port: Number(f.port.value), proxy: f.proxy.value, antigravity: f.antigravity.value, patchBinary: f.patchBinary.checked}); toast("设置已保存（端口变化需要重启 AGBridge）", "ok"); load(); }
+  catch (e) { toast(e.message, "bad"); }
+};
+$("#logDetails").addEventListener("toggle", async () => {
+  if (!$("#logDetails").open) return;
+  const r = await api("GET", "/logs"); const pre = $("#logText"); pre.textContent = r.text; pre.scrollTop = pre.scrollHeight;
+});
+
+load();
+setInterval(() => { if (!document.querySelector("dialog[open]")) load(); }, 5000);
+</script>
+</body>
+</html>
