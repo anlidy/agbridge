@@ -22,9 +22,10 @@ var envelopeOnly = map[string]bool{
 	"modelId": true, "model_id": true, "sessionId": true, "conversationId": true, "labels": true,
 }
 
-// matchModel finds the custom model a selector refers to: its catalog slug,
-// "models/<slug>", the placeholder enum name or its numeric value.
-func matchModel(cfg *config.Config, selectors ...any) *config.Model {
+// matchModel finds the custom model a selector refers to: an entry's catalog
+// slug, "models/<slug>", the placeholder enum name or its numeric value. It
+// also returns the effort of the matched entry ("" for a plain one).
+func matchModel(cfg *config.Config, selectors ...any) (*config.Model, string) {
 	for _, sel := range selectors {
 		var s string
 		switch v := sel.(type) {
@@ -42,12 +43,17 @@ func matchModel(cfg *config.Config, selectors ...any) *config.Model {
 		}
 		for i := range cfg.Models {
 			m := &cfg.Models[i]
-			if m.Slug() == s || (m.Placeholder != nil && (s == m.PlaceholderName() || s == strconv.Itoa(1000+*m.Placeholder))) {
-				return m
+			if m.Slug() == s {
+				return m, ""
+			}
+			for _, e := range m.Entries() {
+				if e.Slug == s || (e.Placeholder != nil && (s == config.PlaceholderName(*e.Placeholder) || s == strconv.Itoa(1000+*e.Placeholder))) {
+					return m, e.Effort
+				}
 			}
 		}
 	}
-	return nil
+	return nil, ""
 }
 
 // handleCustom answers a generation for a custom model, or forwards it to
@@ -66,15 +72,16 @@ func (s *Server) handleCustom(w http.ResponseWriter, r *http.Request, envelope b
 	}
 	cfg := s.store.Get()
 	var model *config.Model
+	var effort string
 	if envelope {
 		inner, _ := req["request"].(map[string]any)
 		var innerModel any
 		if inner != nil {
 			innerModel = inner["model"]
 		}
-		model = matchModel(cfg, req["model"], req["modelId"], req["model_id"], innerModel)
+		model, effort = matchModel(cfg, req["model"], req["modelId"], req["model_id"], innerModel)
 	} else {
-		model = matchModel(cfg, urlModel)
+		model, effort = matchModel(cfg, urlModel)
 	}
 	if model == nil {
 		s.forwardBuffered(w, r, body, upstream)
@@ -84,6 +91,13 @@ func (s *Server) handleCustom(w http.ResponseWriter, r *http.Request, envelope b
 	if prov == nil || !model.Enabled {
 		writeError(w, http.StatusBadRequest, "agbridge: 模型 "+model.DisplayName+" 已停用或提供方不存在")
 		return
+	}
+	label := model.DisplayName
+	if effort != "" {
+		m := *model // cfg is shared; adjust a copy
+		m.ReasoningEffort = effort
+		model = &m
+		label += " (" + effort + ")"
 	}
 
 	inner := req
@@ -107,8 +121,8 @@ func (s *Server) handleCustom(w http.ResponseWriter, r *http.Request, envelope b
 
 	stream := method == "streamGenerateContent"
 	start := time.Now()
-	rec := applog.Record{Time: start, Kind: "custom", Model: model.DisplayName, Provider: prov.Name}
-	log.Printf("[custom] %s -> %s (%s %s) stream=%v", model.DisplayName, prov.Name, prov.Type, model.UpstreamModel, stream)
+	rec := applog.Record{Time: start, Kind: "custom", Model: label, Provider: prov.Name}
+	log.Printf("[custom] %s -> %s (%s %s) stream=%v", label, prov.Name, prov.Type, model.UpstreamModel, stream)
 
 	wrap := func(chunk any) any {
 		if !envelope {

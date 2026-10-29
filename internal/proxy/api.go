@@ -238,14 +238,15 @@ func (s *Server) apiSaveModel(w http.ResponseWriter, r *http.Request) {
 	err := s.store.Update(func(c *config.Config) error {
 		if m.ID == "" {
 			m.ID = config.NewID()
-			m.Placeholder = nil
+			m.Placeholder, m.EffortPlaceholders = nil, nil
 			c.Models = append(c.Models, m)
 		} else {
 			cur := c.Model(m.ID)
 			if cur == nil {
 				return errors.New("模型不存在")
 			}
-			m.Placeholder = cur.Placeholder // identity is owned by agbridge
+			// Identities are owned by agbridge.
+			m.Placeholder, m.EffortPlaceholders = cur.Placeholder, cur.EffortPlaceholders
 			*cur = m
 		}
 		config.AssignPlaceholders(c, nil)

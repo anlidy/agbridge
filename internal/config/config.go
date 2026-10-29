@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -60,19 +61,51 @@ type Model struct {
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 	// ThoughtSignature handling for gemini upstreams: "keep" (default), "dummy", "strip".
 	ThoughtSignature string `json:"thoughtSignature,omitempty"`
-	// Placeholder is the native MODEL_PLACEHOLDER_M<n> index this model owns in the picker.
-	Placeholder *int `json:"placeholder,omitempty"`
+	// Efforts, when set, lists the reasoning efforts offered as separate picker
+	// entries "Name (Low)", "Name (High)"…, which Antigravity groups into one
+	// model with an effort switch, like its native Gemini models.
+	Efforts []string `json:"efforts,omitempty"`
+	// Placeholder is the native MODEL_PLACEHOLDER_M<n> index this model owns in
+	// the picker; EffortPlaceholders holds those of its effort entries.
+	Placeholder        *int           `json:"placeholder,omitempty"`
+	EffortPlaceholders map[string]int `json:"effortPlaceholders,omitempty"`
+}
+
+// EffortLevels are the accepted reasoning efforts, lowest first.
+var EffortLevels = []string{"minimal", "low", "medium", "high"}
+
+// Entry is one item a model puts into the picker.
+type Entry struct {
+	Slug        string
+	Label       string // suffix for the display name, e.g. " (High)"
+	Effort      string // "" for the model's plain entry
+	Placeholder *int
 }
 
 // Slug is the catalog key Antigravity uses to refer to the model.
 func (m *Model) Slug() string { return "agb-" + m.ID }
 
-func (m *Model) PlaceholderName() string {
-	if m.Placeholder == nil {
-		return ""
+// Entries lists the model's picker entries: one per effort when Efforts is
+// set, else the plain entry.
+func (m *Model) Entries() []Entry {
+	if len(m.Efforts) == 0 {
+		return []Entry{{Slug: m.Slug(), Placeholder: m.Placeholder}}
 	}
-	return fmt.Sprintf("MODEL_PLACEHOLDER_M%d", *m.Placeholder)
+	var out []Entry
+	for _, e := range EffortLevels {
+		if !slices.Contains(m.Efforts, e) {
+			continue
+		}
+		en := Entry{Slug: m.Slug() + "-" + e, Label: " (" + strings.ToUpper(e[:1]) + e[1:] + ")", Effort: e}
+		if n, ok := m.EffortPlaceholders[e]; ok {
+			en.Placeholder = &n
+		}
+		out = append(out, en)
+	}
+	return out
 }
+
+func PlaceholderName(n int) string { return fmt.Sprintf("MODEL_PLACEHOLDER_M%d", n) }
 
 type Upstreams struct {
 	CloudCode string `json:"cloudCode,omitempty"`
@@ -265,11 +298,19 @@ func validate(c *Config) error {
 		if strings.TrimSpace(m.UpstreamModel) == "" {
 			return fmt.Errorf("模型 %s 缺少上游模型名", m.DisplayName)
 		}
-		if m.Placeholder != nil {
-			if prev, ok := owners[*m.Placeholder]; ok {
+		for i, e := range m.Efforts {
+			if !slices.Contains(EffortLevels, e) || slices.Contains(m.Efforts[:i], e) {
+				return fmt.Errorf("模型 %s 的档位 %q 无效或重复", m.DisplayName, e)
+			}
+		}
+		for _, e := range m.Entries() {
+			if e.Placeholder == nil {
+				continue
+			}
+			if prev, ok := owners[*e.Placeholder]; ok {
 				return fmt.Errorf("模型 %s 与 %s 占用了同一个原生编号", m.DisplayName, prev)
 			}
-			owners[*m.Placeholder] = m.DisplayName
+			owners[*e.Placeholder] = m.DisplayName
 		}
 	}
 	return nil
@@ -313,23 +354,76 @@ func AssignPlaceholders(c *Config, upstreamUsed []int) bool {
 		}
 	}
 	sort.Ints(c.ReservedPlaceholders)
-	used := map[int]bool{}
+
+	// A model holds either its plain placeholder or one per effort entry;
+	// release whatever it no longer shows.
 	for i := range c.Models {
 		m := &c.Models[i]
-		if m.Placeholder != nil && (reserved[*m.Placeholder] || used[*m.Placeholder] || *m.Placeholder < 0 || *m.Placeholder > PlaceholderMax) {
-			// Google started using this identity, or it collides: never let a native
-			// selection route to a custom provider.
+		if len(m.Efforts) > 0 && m.Placeholder != nil {
 			m.Placeholder = nil
 			changed = true
 		}
-		if m.Placeholder != nil {
-			used[*m.Placeholder] = true
+		for e := range m.EffortPlaceholders {
+			if !slices.Contains(m.Efforts, e) {
+				delete(m.EffortPlaceholders, e)
+				changed = true
+			}
+		}
+	}
+	type slot struct {
+		m      *Model
+		effort string
+	}
+	get := func(s slot) (int, bool) {
+		if s.effort == "" {
+			if s.m.Placeholder == nil {
+				return 0, false
+			}
+			return *s.m.Placeholder, true
+		}
+		n, ok := s.m.EffortPlaceholders[s.effort]
+		return n, ok
+	}
+	set := func(s slot, n int, ok bool) {
+		changed = true
+		switch {
+		case s.effort == "" && ok:
+			s.m.Placeholder = &n
+		case s.effort == "":
+			s.m.Placeholder = nil
+		case ok:
+			if s.m.EffortPlaceholders == nil {
+				s.m.EffortPlaceholders = map[string]int{}
+			}
+			s.m.EffortPlaceholders[s.effort] = n
+		default:
+			delete(s.m.EffortPlaceholders, s.effort)
+		}
+	}
+	var slots []slot
+	for i := range c.Models {
+		m := &c.Models[i]
+		for _, e := range m.Entries() {
+			slots = append(slots, slot{m, e.Effort})
+		}
+	}
+
+	used := map[int]bool{}
+	for _, s := range slots {
+		n, ok := get(s)
+		if ok && (reserved[n] || used[n] || n < 0 || n > PlaceholderMax) {
+			// Google started using this identity, or it collides: never let a native
+			// selection route to a custom provider.
+			set(s, 0, false)
+			ok = false
+		}
+		if ok {
+			used[n] = true
 		}
 	}
 	next := placeholderAllocBase
-	for i := range c.Models {
-		m := &c.Models[i]
-		if m.Placeholder != nil {
+	for _, s := range slots {
+		if _, ok := get(s); ok {
 			continue
 		}
 		for next >= 0 && (reserved[next] || used[next]) {
@@ -338,10 +432,8 @@ func AssignPlaceholders(c *Config, upstreamUsed []int) bool {
 		if next < 0 {
 			break
 		}
-		n := next
-		m.Placeholder = &n
-		used[n] = true
-		changed = true
+		set(s, next, true)
+		used[next] = true
 	}
 	return changed
 }

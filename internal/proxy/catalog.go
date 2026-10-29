@@ -132,10 +132,23 @@ func (s *Server) injectCatalog(catalog map[string]any) int {
 	for i := range cfg.Models {
 		m := &cfg.Models[i]
 		p := cfg.Provider(m.ProviderID)
-		if !m.Enabled || p == nil || m.Placeholder == nil {
+		if !m.Enabled || p == nil {
 			continue
 		}
-		label := uniqueLabel(m.DisplayName, p.Name, usedLabels)
+		var items []config.Entry
+		for _, e := range m.Entries() {
+			if e.Placeholder != nil {
+				items = append(items, e)
+			}
+		}
+		if len(items) == 0 {
+			continue
+		}
+		suffixes := make([]string, len(items))
+		for i, e := range items {
+			suffixes[i] = e.Label
+		}
+		label := uniqueLabel(m.DisplayName, p.Name, suffixes, usedLabels)
 		maxTok, maxOut := limits(m, p)
 		images := m.SupportsImages == nil || *m.SupportsImages
 		think := m.SupportsThink == nil || *m.SupportsThink
@@ -152,31 +165,33 @@ func (s *Server) injectCatalog(catalog map[string]any) int {
 		if p.Type == config.TypeGemini || p.Type == config.TypeAnthropic {
 			mimes["application/pdf"] = true
 		}
-		entries = append(entries, entry{
-			slug: m.Slug(),
-			m: map[string]any{
-				"displayName":        label,
-				"supportsImages":     images,
-				"supportsThinking":   think,
-				"supportsVideo":      false,
-				"supportedMimeTypes": mimes,
-				"recommended":        true,
-				"maxTokens":          maxTok,
-				"maxOutputTokens":    maxOut,
-				"tokenizerType":      "LLAMA_WITH_SPECIAL",
-				"model":              m.PlaceholderName(),
-				"apiProvider":        "API_PROVIDER_GOOGLE_GEMINI",
-				"modelProvider":      "MODEL_PROVIDER_GOOGLE",
-			},
-			list: map[string]any{
-				"name":                       "models/" + m.Slug(),
-				"version":                    "1.0",
-				"displayName":                label,
-				"inputTokenLimit":            maxTok,
-				"outputTokenLimit":           maxOut,
-				"supportedGenerationMethods": []string{"generateContent", "countTokens"},
-			},
-		})
+		for _, e := range items {
+			entries = append(entries, entry{
+				slug: e.Slug,
+				m: map[string]any{
+					"displayName":        label + e.Label,
+					"supportsImages":     images,
+					"supportsThinking":   think,
+					"supportsVideo":      false,
+					"supportedMimeTypes": mimes,
+					"recommended":        true,
+					"maxTokens":          maxTok,
+					"maxOutputTokens":    maxOut,
+					"tokenizerType":      "LLAMA_WITH_SPECIAL",
+					"model":              config.PlaceholderName(*e.Placeholder),
+					"apiProvider":        "API_PROVIDER_GOOGLE_GEMINI",
+					"modelProvider":      "MODEL_PROVIDER_GOOGLE",
+				},
+				list: map[string]any{
+					"name":                       "models/" + e.Slug,
+					"version":                    "1.0",
+					"displayName":                label + e.Label,
+					"inputTokenLimit":            maxTok,
+					"outputTokenLimit":           maxOut,
+					"supportedGenerationMethods": []string{"generateContent", "countTokens"},
+				},
+			})
+		}
 	}
 	slugs := make([]string, len(entries))
 	for i, e := range entries {
@@ -294,15 +309,27 @@ func scanCatalog(catalog map[string]any) ([]NativeModel, []int) {
 	return natives, used
 }
 
-func uniqueLabel(name, provider string, used map[string]bool) string {
+// uniqueLabel picks a display name whose entries (name + each suffix) do not
+// clash with native or earlier custom ones, and reserves them.
+func uniqueLabel(name, provider string, suffixes []string, used map[string]bool) string {
+	free := func(label string) bool {
+		for _, sfx := range suffixes {
+			if used[label+sfx] {
+				return false
+			}
+		}
+		return true
+	}
 	label := name
-	if used[label] {
+	if !free(label) {
 		label = name + " · " + provider
 	}
-	for i := 2; used[label]; i++ {
+	for i := 2; !free(label); i++ {
 		label = fmt.Sprintf("%s · %s #%d", name, provider, i)
 	}
-	used[label] = true
+	for _, sfx := range suffixes {
+		used[label+sfx] = true
+	}
 	return label
 }
 
@@ -346,7 +373,9 @@ func (s *Server) CatalogStale() bool {
 	var want []string
 	for i := range cfg.Models {
 		if m := &cfg.Models[i]; m.Enabled && cfg.Provider(m.ProviderID) != nil {
-			want = append(want, m.Slug())
+			for _, e := range m.Entries() {
+				want = append(want, e.Slug)
+			}
 		}
 	}
 	return !slices.Equal(sortedCopy(want), sortedCopy(injected))

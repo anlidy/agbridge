@@ -61,7 +61,7 @@ details summary{cursor:pointer;color:var(--muted)}
   <section class="card">
     <h2>模型<span class="sp"></span><button id="btnAddModel" class="primary">添加模型</button></h2>
     <table><thead><tr><th>显示名</th><th>提供方</th><th>上游模型</th><th>原生编号</th><th>启用</th><th></th></tr></thead><tbody id="models"></tbody></table>
-    <p class="muted" style="margin:10px 0 0">保存后要完全退出 Antigravity 再打开，模型下拉框才会更新。</p>
+    <p class="muted" style="margin:10px 0 0">保存后，Antigravity 下次拉取模型列表时（大约每 6 分钟一次）下拉框会更新；等不及的话，完全退出 Antigravity 再打开。</p>
   </section>
 
   <section class="card">
@@ -145,6 +145,14 @@ details summary{cursor:pointer;color:var(--muted)}
       <option value="">自动（被拒时换占位签名重试）</option><option value="keep">原样保留</option>
       <option value="dummy">总用占位签名</option><option value="strip">全部去掉</option></select></label>
   </div>
+  <div class="row" id="effortsRow">
+    <span class="muted">下拉框档位</span>
+    <label class="check"><input type="checkbox" name="effort" value="minimal"> Minimal</label>
+    <label class="check"><input type="checkbox" name="effort" value="low"> Low</label>
+    <label class="check"><input type="checkbox" name="effort" value="medium"> Medium</label>
+    <label class="check"><input type="checkbox" name="effort" value="high"> High</label>
+  </div>
+  <p class="muted" style="margin:0;font-size:12px">勾选后，模型会按档位注入成“名字 (Low)”“名字 (High)”这样的多个条目，Antigravity 会像原生 Gemini 一样在下拉框里提供档位切换；每个档位按对应的推理强度发请求。不勾时只注入一个条目，使用上面的推理强度。</p>
   <div class="btns"><button value="cancel" formnovalidate>取消</button><button class="primary" value="save">保存</button></div>
 </form></dialog>
 
@@ -198,7 +206,7 @@ function renderInstall() {
   const m = $("#installMsg");
   const notice = s.message ? [s.message, "bad"]
     : s.restartNeeded ? ["已接入，但正在运行的 Antigravity 还在用接入前的语言服务器。完全退出 Antigravity（包括托盘）再打开后生效。", "warn"]
-    : state.catalogStale && s.running ? ["模型有改动，Antigravity 还没重新拉取模型列表。完全退出 Antigravity 再打开后，下拉框才会更新。", "warn"]
+    : state.catalogStale && s.running ? ["模型有改动，Antigravity 还没重新拉取模型列表。它大约每 6 分钟拉一次；等不及的话，完全退出 Antigravity 再打开。", "warn"]
     : null;
   if (notice) { m.textContent = notice[0]; m.className = "msg " + notice[1]; m.style.display = "block"; } else m.style.display = "none";
   const hs = $("#hdrStatus");
@@ -223,7 +231,7 @@ function renderModels() {
   if (!state.models.length) { tb.innerHTML = '<tr><td colspan="6" class="empty">还没有模型</td></tr>'; return; }
   tb.innerHTML = state.models.map(m => `<tr>
     <td>${esc(m.displayName)}</td><td>${esc(providerName(m.providerId))}</td><td class="mono">${esc(m.upstreamModel)}</td>
-    <td class="mono muted">${m.placeholder == null ? "-" : "M" + m.placeholder}</td>
+    <td class="mono muted">${m.efforts?.length ? m.efforts.map(e => esc(e) + ":M" + (m.effortPlaceholders?.[e] ?? "-")).join(" ") : m.placeholder == null ? "-" : "M" + m.placeholder}</td>
     <td><input type="checkbox" data-toggle-model="${m.id}" ${m.enabled ? "checked" : ""}></td>
     <td class="actions"><button class="small" data-test-model="${m.id}">测试</button> <button class="small" data-edit-model="${m.id}">编辑</button> <button class="small danger" data-del-model="${m.id}">删除</button></td></tr>`).join("");
 }
@@ -298,6 +306,7 @@ function openModel(m) {
   f.maxTokens.value = m?.maxTokens || ""; f.maxOutputTokens.value = m?.maxOutputTokens || "";
   f.enabled.checked = m ? m.enabled : true; f.supportsImages.checked = m?.supportsImages ?? true; f.supportsThinking.checked = m?.supportsThinking ?? true;
   f.reasoningEffort.value = m?.reasoningEffort || ""; f.thoughtSignature.value = m?.thoughtSignature || "";
+  f.querySelectorAll('input[name="effort"]').forEach(i => { i.checked = (m?.efforts || []).includes(i.value); });
   $("#fetchList").style.display = "none"; $("#fetchHint").textContent = m ? "" : "可以一次勾选多个";
   syncModelProvider(); $("#modelDlg").showModal();
 }
@@ -320,7 +329,8 @@ $("#modelDlg").addEventListener("close", async () => {
   const f = $("#modelForm");
   const base = {providerId: f.providerId.value, enabled: f.enabled.checked, supportsImages: f.supportsImages.checked, supportsThinking: f.supportsThinking.checked,
     maxTokens: Number(f.maxTokens.value) || 0, maxOutputTokens: Number(f.maxOutputTokens.value) || 0,
-    reasoningEffort: f.reasoningEffort.value, thoughtSignature: f.thoughtSignature.value};
+    reasoningEffort: f.reasoningEffort.value, thoughtSignature: f.thoughtSignature.value,
+    efforts: [...f.querySelectorAll('input[name="effort"]:checked')].map(i => i.value)};
   const picked = [...document.querySelectorAll("#fetchList input:checked")].map(i => i.value);
   if (!picked.length && !f.upstreamModel.value.trim()) { toast("请填写上游模型名，或从列表里勾选", "bad"); $("#modelDlg").showModal(); return; }
   try {

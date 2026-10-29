@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -195,7 +196,7 @@ func TestCustomGenerationIsWrapped(t *testing.T) {
 func TestPlaceholderSelectorAndNativeForward(t *testing.T) {
 	e := newEnv(t, fakeGemini(t))
 	e.post("/v1internal:fetchAvailableModels", `{}`).Body.Close() // allocates placeholders
-	ph := e.store.Get().Model("m1").PlaceholderName()
+	ph := config.PlaceholderName(*e.store.Get().Model("m1").Placeholder)
 
 	resp := e.post("/v1internal:generateContent", `{"model":"`+ph+`","request":{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}}`)
 	b, _ := io.ReadAll(resp.Body)
@@ -247,5 +248,56 @@ func TestThirdPartyAuthErrorIsNotUnauthorized(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 400 || !strings.Contains(string(b), "API key not valid") {
 		t.Fatalf("status %d body %s", resp.StatusCode, b)
+	}
+}
+
+func TestEffortEntries(t *testing.T) {
+	var levels []any
+	e := newEnv(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		tc, _ := b["generationConfig"].(map[string]any)["thinkingConfig"].(map[string]any)
+		levels = append(levels, tc["thinkingLevel"])
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`)
+	}))
+	e.post("/v1internal:fetchAvailableModels", `{}`).Body.Close() // m1 gets a plain placeholder first
+	if err := e.store.Update(func(c *config.Config) error {
+		c.Models[0].Efforts = []string{"high", "low"}
+		config.AssignPlaceholders(c, nil)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m := e.store.Get().Model("m1")
+	if m.Placeholder != nil || len(m.EffortPlaceholders) != 2 {
+		t.Fatalf("placeholders = %v %v", m.Placeholder, m.EffortPlaceholders)
+	}
+
+	resp := e.post("/v1internal:fetchAvailableModels", `{}`)
+	var cat map[string]any
+	json.NewDecoder(resp.Body).Decode(&cat)
+	resp.Body.Close()
+	models := cat["models"].(map[string]any)
+	if _, ok := models["agb-m1"]; ok {
+		t.Fatal("plain entry still listed next to effort entries")
+	}
+	low, _ := models["agb-m1-low"].(map[string]any)
+	high, _ := models["agb-m1-high"].(map[string]any)
+	if low == nil || high == nil || !strings.HasSuffix(low["displayName"].(string), " (Low)") || !strings.HasSuffix(high["displayName"].(string), " (High)") {
+		t.Fatalf("effort entries = %v / %v", low, high)
+	}
+	ids := cat["agentModelSorts"].([]any)[0].(map[string]any)["groups"].([]any)[0].(map[string]any)["modelIds"].([]any)
+	if fmt.Sprint(ids[len(ids)-2:]) != "[agb-m1-low agb-m1-high]" {
+		t.Fatalf("picker order = %v", ids)
+	}
+
+	for _, sel := range []string{high["model"].(string), "agb-m1-low"} {
+		resp := e.post("/v1internal:generateContent", `{"model":"`+sel+`","request":{"contents":[{"role":"user","parts":[{"text":"hi"}]}],
+			"generationConfig":{"thinkingConfig":{"includeThoughts":true,"thinkingBudget":0}}}}`)
+		resp.Body.Close()
+	}
+	if fmt.Sprint(levels) != "[HIGH LOW]" {
+		t.Fatalf("thinking levels sent = %v", levels)
 	}
 }
